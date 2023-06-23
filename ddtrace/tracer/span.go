@@ -517,8 +517,8 @@ func (s *span) finish(finishTime int64) {
 	}
 	if log.DebugEnabled() {
 		// avoid allocating the ...interface{} argument if debug logging is disabled
-		log.Debug("Finished Span: %v, Operation: %s, Resource: %s, Tags: %v, %v",
-			s, s.Name, s.Resource, s.Meta, s.Metrics)
+		log.Debug("Finished Span: %v, Operation: %s, Resource: %s, Tags: %v, %v, running_spans=%v, finshed=%v",
+			s, s.Name, s.Resource, s.Meta, s.Metrics, len(s.context.trace.spans), s.context.trace.finished)
 	}
 	s.context.finish()
 }

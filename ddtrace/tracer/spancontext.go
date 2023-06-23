@@ -368,6 +368,10 @@ func (t *trace) finishedOne(s *span) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.full {
+		// avoid allocating the ...interface{} argument if debug logging is disabled
+		log.Debug("Trace capacity reached - Span: %v, Operation: %s, Resource: %s, Tags: %v, %v",
+			s, s.Name, s.Resource, s.Meta, s.Metrics)
+
 		// capacity has been reached, the buffer is no longer tracking
 		// all the spans in the trace, so the below conditions will not
 		// be accurate and would trigger a pre-mature flush, exposing us
@@ -415,6 +419,7 @@ func (t *trace) finishedOne(s *span) {
 	if len(t.spans) != t.finished {
 		return
 	}
+	log.Debug("Finished Trace: %v", t)
 	if hn := tr.hostname(); hn != "" {
 		s.setMeta(keyTracerHostname, hn)
 	}

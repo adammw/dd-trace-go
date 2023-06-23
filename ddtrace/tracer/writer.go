@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -37,6 +38,8 @@ type agentTraceWriter struct {
 	// payload encodes and buffers traces in msgpack format
 	payload *payload
 
+	tracesAdded []string
+
 	// climit limits the number of concurrent outgoing connections
 	climit chan struct{}
 
@@ -62,10 +65,13 @@ func newAgentTraceWriter(c *config, s *prioritySampler, statsdClient statsdClien
 }
 
 func (h *agentTraceWriter) add(trace []*span) {
+	log.Debug("adding trace to payload - Trace: %v, Operation: %s, Resource: %s, Tags: %v, %v",
+		trace[0], trace[0].Name, trace[0].Resource, trace[0].Meta, trace[0].Metrics)
 	if err := h.payload.push(trace); err != nil {
 		h.statsd.Incr("datadog.tracer.traces_dropped", []string{"reason:encoding_error"}, 1)
 		log.Error("Error encoding msgpack: %v", err)
 	}
+	h.tracesAdded = append(h.tracesAdded, fmt.Sprintf("%v", trace[0]))
 	if h.payload.size() > payloadSizeLimit {
 		h.statsd.Incr("datadog.tracer.flush_triggered", []string{"reason:size"}, 1)
 		h.flush()
@@ -86,8 +92,10 @@ func (h *agentTraceWriter) flush() {
 	h.wg.Add(1)
 	h.climit <- struct{}{}
 	oldp := h.payload
+	tracesAdded := h.tracesAdded
+	h.tracesAdded = nil
 	h.payload = newPayload()
-	go func(p *payload) {
+	go func(p *payload, tracesAdded []string) {
 		defer func(start time.Time) {
 			// Once the payload has been used, clear the buffer for garbage
 			// collection to avoid a memory leak when references to this object
@@ -104,7 +112,7 @@ func (h *agentTraceWriter) flush() {
 		var err error
 		for attempt := 0; attempt <= h.config.sendRetries; attempt++ {
 			size, count = p.size(), p.itemCount()
-			log.Debug("Sending payload: size: %d traces: %d\n", size, count)
+			log.Debug("Sending payload: size: %d traces: %d - %v\n", size, count, tracesAdded)
 			rc, err := h.config.transport.send(p)
 			if err == nil {
 				log.Debug("sent traces after %d attempts", attempt+1)
@@ -121,7 +129,7 @@ func (h *agentTraceWriter) flush() {
 		}
 		h.statsd.Count("datadog.tracer.traces_dropped", int64(count), []string{"reason:send_failed"}, 1)
 		log.Error("lost %d traces: %v", count, err)
-	}(oldp)
+	}(oldp, tracesAdded)
 }
 
 // logWriter specifies the output target of the logTraceWriter; replaced in tests.
